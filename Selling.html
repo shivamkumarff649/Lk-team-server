@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>3D Product — Simple Selling Page</title>
+<style>
+  :root{
+    --bg:#0f1724;
+    --card:#0b1220;
+    --accent:#7c3aed;
+    --glass: rgba(255,255,255,0.06);
+    --text:#e6eef8;
+    --muted:rgba(230,238,248,0.7);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;
+    background: linear-gradient(180deg,#071025 0%, var(--bg) 100%);
+    color:var(--text);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    min-height:100vh;
+    display:flex; align-items:center; justify-content:center;
+    padding:32px;
+  }
+
+  .wrap{
+    width:100%; max-width:1100px;
+    display:grid; grid-template-columns: 1fr 420px; gap:32px;
+    align-items:center;
+  }
+
+  /* Left: hero / description */
+  .hero{
+    padding:28px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+    border-radius:18px;
+    box-shadow: 0 8px 30px rgba(2,6,23,0.6);
+    backdrop-filter: blur(6px);
+  }
+  .kicker{ color:var(--muted); font-weight:600; letter-spacing:0.08em; text-transform:uppercase; font-size:12px}
+  h1{ margin:12px 0 6px; font-size:clamp(22px,4vw,34px); line-height:1.02}
+  p.lead{ color:var(--muted); margin:14px 0 20px; font-size:15px; max-width:56ch}
+  .features{ display:flex; gap:8px; flex-wrap:wrap; margin:18px 0}
+  .pill{ background:var(--glass); padding:8px 12px; border-radius:999px; font-size:13px; color:var(--muted) }
+
+  .cta-row{ display:flex; gap:12px; align-items:center; margin-top:16px}
+  .btn{
+    background:linear-gradient(90deg,var(--accent),#5b21b6);
+    color:white; padding:12px 18px; border-radius:12px; border:0;
+    cursor:pointer; font-weight:600; box-shadow:0 8px 28px rgba(124,58,237,0.15);
+  }
+  .ghost{ background:transparent; border:1px solid rgba(255,255,255,0.06); color:var(--muted); padding:10px 14px; border-radius:12px; cursor:pointer}
+
+  /* Right: 3D product card */
+  .stage{
+    perspective:1400px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .card{
+    width:380px; height:520px; border-radius:18px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    box-shadow:
+      0 30px 80px rgba(2,6,23,0.6),
+      inset 0 1px 0 rgba(255,255,255,0.02);
+    transform-style:preserve-3d;
+    transition: transform 300ms cubic-bezier(.2,.9,.3,1), box-shadow 300ms;
+    position:relative; overflow:hidden;
+    display:flex; flex-direction:column; align-items:center; padding:22px;
+  }
+  .card:not(.active){ cursor:move; }
+  .product-slab{
+    width:320px; height:320px; border-radius:14px; background:linear-gradient(135deg,#071228,#0a1530);
+    display:flex; align-items:center; justify-content:center; margin-top:8px; transform: translateZ(60px) ;
+    box-shadow: 0 20px 40px rgba(2,6,23,0.6);
+    position:relative; overflow:visible;
+  }
+  .product-slab img{ width:78%; max-width:260px; transform: translateZ(40px) rotateY(-12deg); transition: transform 250ms; display:block }
+
+  .label{
+    position:absolute; left:18px; top:18px; background:rgba(255,255,255,0.04); padding:8px 10px; border-radius:10px; font-weight:700; font-size:13px;
+    transform: translateZ(40px);
+  }
+
+  .price{
+    margin-top:18px; font-weight:800; font-size:22px; transform: translateZ(30px);
+  }
+  .meta{ color:var(--muted); font-size:13px; margin-top:8px; transform: translateZ(20px)}
+  .buy{ margin-top:auto; width:100%; display:flex; gap:10px; padding-top:18px; transform: translateZ(20px) }
+
+  .specs{
+    width:100%; display:flex; justify-content:space-between; gap:10px; margin-top:12px; transform: translateZ(20px)
+  }
+  .spec{ background:rgba(255,255,255,0.03); padding:8px 10px; border-radius:10px; font-size:13px; color:var(--muted); text-align:center; flex:1 }
+
+  /* hover glow & reflections */
+  .card::before{
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(600px 200px at 10% 10%, rgba(124,58,237,0.06), transparent 15%),
+                radial-gradient(500px 160px at 90% 90%, rgba(59,130,246,0.03), transparent 12%);
+    opacity:1; transition:opacity .3s;
+  }
+
+  /* modal */
+  .modal{
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:60;
+    background:linear-gradient(rgba(2,6,23,0.6), rgba(2,6,23,0.6));
+  }
+  .modal.open{ display:flex }
+  .modal-card{ background:#071025; padding:20px; border-radius:12px; width:90%; max-width:420px; color:var(--text); box-shadow:0 30px 60px rgba(2,6,23,0.7) }
+
+  /* responsive */
+  @media (max-width:880px){
+    .wrap{ grid-template-columns: 1fr; }
+    .card{ width:100%; height:auto }
+    .product-slab{ width:86%; height:260px; margin:14px 0 }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="kicker">New • Limited</div>
+      <h1>OrbX Portable Speaker — 3D Edition</h1>
+      <p class="lead">Compact, powerful and stylish — OrbX brings studio-grade sound in a pocket-friendly body with 12 hours battery and wireless charging. A sale-ready product card with 3D vibe to attract customers.</p>
+
+      <div class="features">
+        <div class="pill">Wireless</div>
+        <div class="pill">12h Battery</div>
+        <div class="pill">Fast Charge</div>
+        <div class="pill">IP67</div>
+      </div>
+
+      <div class="cta-row">
+        <button class="btn" id="buyMain">Buy Now — ₹3,499</button>
+        <button class="ghost" id="demoBtn">Live Demo</button>
+      </div>
+
+      <div style="margin-top:22px; color:var(--muted); font-size:13px">
+        <strong>Fast tip:</strong> Hover over the product card to see depth and tilt. Works on desktop; tap to open on mobile.
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="card" id="card">
+        <div class="label">Best Seller</div>
+
+        <div class="product-slab" id="slab">
+          <!-- replace src with your product image -->
+          <img src="https://images.unsplash.com/photo-1518444020206-4d5b8db7a7b3?q=80&w=800&auto=format&fit=crop&ixlib=rb-4.0.3&s=9f2c2d5b6b1b2e0679f2c3b1a6f41e6b" alt="product">
+        </div>
+
+        <div class="price">₹3,499 <span style="font-size:12px; color:var(--muted); font-weight:600">/ piece</span></div>
+        <div class="meta">Free shipping • 30 days returns</div>
+
+        <div class="specs">
+          <div class="spec">40W Output</div>
+          <div class="spec">Bluetooth 5.3</div>
+          <div class="spec">USB-C</div>
+        </div>
+
+        <div class="buy">
+          <button class="btn" style="flex:1" id="buySmall">Buy</button>
+          <button class="ghost" style="flex:0 0 90px" id="shareBtn">Share</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- modal -->
+  <div class="modal" id="modal">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">Complete Purchase</h3>
+      <p style="color:var(--muted)">You're about to buy <strong>OrbX Portable Speaker</strong> for <strong>₹3,499</strong>.</p>
+      <div style="margin-top:14px; display:flex; gap:10px">
+        <button class="btn" id="confirmBuy">Confirm</button>
+        <button class="ghost" id="closeModal">Cancel</button>
+      </div>
+      <div id="modalMsg" style="margin-top:12px; color:var(--muted); font-size:13px"></div>
+    </div>
+  </div>
+
+<script>
+  // 3D tilt effect
+  const card = document.getElementById('card');
+  const slab = document.getElementById('slab');
+  let active = false;
+
+  function handleMove(e){
+    const rect = card.getBoundingClientRect();
+    const x = ( (e.clientX ?? e.touches?.[0]?.clientX) - rect.left ) - rect.width/2;
+    const y = ( (e.clientY ?? e.touches?.[0]?.clientY) - rect.top ) - rect.height/2;
+    const px = x / (rect.width/2);
+    const py = y / (rect.height/2);
+
+    const rotateY = px * 10; // degrees
+    const rotateX = -py * 10;
+
+    card.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(1.03)`;
+    slab.style.transform = `translateZ(60px) rotateY(${rotateY*0.6}deg) translateY(${py*6}px)`;
+    slab.querySelector('img').style.transform = `translateZ(40px) rotateY(${rotateY*0.8}deg)`;
+  }
+
+  function reset(){
+    card.style.transform = `rotateX(0) rotateY(0) scale(1)`;
+    slab.style.transform = `translateZ(60px)`;
+    slab.querySelector('img').style.transform = `translateZ(40px) rotateY(-12deg)`;
+  }
+
+  // desktop
+  card.addEventListener('mousemove', (e)=>{ handleMove(e); active=true; });
+  card.addEventListener('mouseleave', ()=>{ reset(); active=false; });
+
+  // touch: tap to toggle 'active' to show modal or small tilt
+  card.addEventListener('touchstart', (e)=>{ handleMove(e); }, {passive:true});
+  card.addEventListener('touchend', ()=>{ reset(); });
+
+  // modal and buttons
+  const modal = document.getElementById('modal');
+  const buyMain = document.getElementById('buyMain');
+  const buySmall = document.getElementById('buySmall');
+  const closeModal = document.getElementById('closeModal');
+  const confirmBuy = document.getElementById('confirmBuy');
+  const modalMsg = document.getElementById('modalMsg');
+
+  function openModal(){ modal.classList.add('open'); modalMsg.textContent=''; }
+  function closeM(){ modal.classList.remove('open'); }
+
+  buyMain.addEventListener('click', openModal);
+  buySmall.addEventListener('click', openModal);
+  closeModal.addEventListener('click', closeM);
+
+  confirmBuy.addEventListener('click', ()=>{
+    modalMsg.textContent = 'Processing payment...';
+    // simulate API call
+    setTimeout(()=> {
+      modalMsg.textContent = 'Order placed! Your order #ORB' + Math.floor(Math.random()*90000+10000);
+      confirmBuy.textContent = 'Done';
+      confirmBuy.disabled = true;
+    }, 900);
+  });
+
+  // share (simple)
+  document.getElementById('shareBtn').addEventListener('click', ()=>{
+    if(navigator.share){
+      navigator.share({ title: 'OrbX Speaker', text:'Check this out', url:location.href });
+    } else {
+      alert('Copy link: ' + location.href);
+    }
+  });
+
+  // demo button — toggles small bounce
+  document.getElementById('demoBtn').addEventListener('click', ()=>{
+    card.animate([{ transform: 'translateY(0)' }, { transform:'translateY(-8px)' }, { transform:'translateY(0)'}], { duration:600 });
+  });
+
+</script>
+</body>
+  </html>
