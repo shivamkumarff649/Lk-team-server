@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Simple Key Login</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+</head>
+<body>
+  <h2>Login with Key</h2>
+  <form id="loginForm">
+    <label>Key: <input type="text" name="key" required></label><br><br>
+    <label>Device ID: <input type="text" name="device_id" required></label><br><br>
+    <button type="submit">Login</button>
+  </form>
+
+  <p id="result"></p>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const result = document.getElementById('result');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(form);
+      const body = {
+        key: formData.get('key'),
+        device_id: formData.get('device_id')
+      };
+      try {
+        const resp = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const json = await resp.json();
+        if (resp.ok) {
+          result.textContent = 'Login OK — ' + json.message;
+          result.style.color = 'green';
+        } else {
+          result.textContent = 'Login failed — ' + json.message;
+          result.style.color = 'red';
+        }
+      } catch (err) {
+        result.textContent = 'Error: ' + err.message;
+        result.style.color = 'red';
+      }
+    });
+  </script>
+</body>
+  </html>
