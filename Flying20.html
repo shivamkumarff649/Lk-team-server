@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Firdy Burd — Difficulty Levels (Fixed)</title>
+<style>
+  :root{
+    --bg-top: #87CEEB;
+    --bg-bottom: #63a4ff;
+    --card-bg: rgba(255,255,255,0.03);
+    --accent: #ff8a65;
+    --muted: rgba(0,0,0,0.45);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%; margin:0; font-family:Inter,system-ui,Arial; background:linear-gradient(180deg,var(--bg-top),var(--bg-bottom)); color:#032; -webkit-font-smoothing:antialiased}
+  .center{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:18px}
+  .card{width:100%; max-width:720px; background:var(--card-bg); border-radius:12px; padding:16px; box-shadow:0 18px 40px rgba(2,6,23,0.2)}
+  header{display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px}
+  h1{margin:0; font-size:18px}
+  .controls{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .btn{background:transparent; border:1px solid rgba(0,0,0,0.08); padding:8px 10px; border-radius:8px; cursor:pointer}
+  .btn.primary{background:linear-gradient(90deg,#ffb86b,#ff8a65); color:white; border:0}
+  .difficulty-btn{padding:6px 10px; border-radius:10px; cursor:pointer; border:1px solid rgba(0,0,0,0.06); background:transparent}
+  .difficulty-btn.active{background:linear-gradient(90deg,#ffd89b,#ff8a65); color:#3a1707; font-weight:700}
+  .meta{font-size:13px; color:var(--muted)}
+  canvas{display:block; width:100%; border-radius:8px; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); margin-top:10px}
+  .info-row{display:flex; justify-content:space-between; align-items:center; margin-top:10px}
+  .muted{color:var(--muted)}
+  @media (max-width:640px){ header{flex-direction:column; align-items:flex-start} }
+</style>
+</head>
+<body>
+  <div class="center">
+    <div class="card">
+      <header>
+        <div>
+          <h1>Firdy Burd — Choose Difficulty</h1>
+          <div class="meta">Pick a level then Start. Each level changes gravity, gap, speed and spawn rate.</div>
+        </div>
+
+        <div class="controls" aria-hidden="false">
+          <div id="difficultyGroup" role="tablist" aria-label="Difficulty levels">
+            <button class="difficulty-btn" data-diff="easy">Easy</button>
+            <button class="difficulty-btn" data-diff="normal">Normal</button>
+            <button class="difficulty-btn" data-diff="hard">Hard</button>
+            <button class="difficulty-btn" data-diff="insane">Insane</button>
+          </div>
+          <div style="width:8px"></div>
+          <button id="startBtn" class="btn primary">Start / Restart</button>
+          <button id="pauseBtn" class="btn">Pause</button>
+        </div>
+      </header>
+
+      <canvas id="game" width="480" height="640" aria-label="Game canvas"></canvas>
+
+      <div class="info-row">
+        <div class="muted">Score: <strong id="score">0</strong> &nbsp;•&nbsp; Best: <strong id="best">0</strong></div>
+        <div class="muted">Controls: Space / Up to flap • Tap to flap • F = fullscreen</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // Canvas & DOM
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const diffButtons = Array.from(document.querySelectorAll('.difficulty-btn'));
+
+  // logical size
+  const LOG_W = 480, LOG_H = 640;
+  function fitCanvas(){
+    const ratio = window.devicePixelRatio || 1;
+    // CSS size constrained by card width
+    const cssW = Math.min(720, Math.max(320, document.querySelector('.card').clientWidth - 32));
+    const cssH = Math.round(cssW * (LOG_H / LOG_W));
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    // actual backing store size in device pixels
+    canvas.width = Math.floor(cssW * ratio);
+    canvas.height = Math.floor(cssH * ratio);
+    // compute scale to map logical (LOG_W x LOG_H) -> backing store
+    const scaleX = canvas.width / LOG_W;
+    const scaleY = canvas.height / LOG_H;
+    // set transform so drawing uses logical coordinates (0..LOG_W, 0..LOG_H)
+    ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+  }
+  fitCanvas(); window.addEventListener('resize', fitCanvas);
+
+  // difficulty configs
+  const DIFF = {
+    easy:   { gravity: 900, flap: -420, gap: 190, speed: 120, spawn: 1.6 },   // forgiving
+    normal: { gravity: 1100, flap: -360, gap: 150, speed: 140, spawn: 1.45 }, // default
+    hard:   { gravity: 1300, flap: -340, gap: 130, speed: 170, spawn: 1.2  }, // tighter
+    insane: { gravity: 1500, flap: -320, gap: 110, speed: 200, spawn: 1.0  }  // very hard
+  };
+
+  // store selected difficulty in localStorage
+  let selectedDiff = localStorage.getItem('firdy_diff') || 'normal';
+  function setActiveDiffUI() {
+    diffButtons.forEach(b=>{
+      b.classList.toggle('active', b.dataset.diff === selectedDiff);
+    });
+  }
+  setActiveDiffUI();
+  diffButtons.forEach(b=>{
+    b.addEventListener('click', ()=> {
+      selectedDiff = b.dataset.diff;
+      localStorage.setItem('firdy_diff', selectedDiff);
+      setActiveDiffUI();
+      applyDifficulty();
+    });
+  });
+
+  // audio (simple) — signature matches calls: beep(freq, t, type, vol)
+  const audioCtx = (window.AudioContext||window.webkitAudioContext)? new (window.AudioContext||window.webkitAudioContext)() : null;
+  function beep(freq=440, t=0.06, type='sine', vol=0.12){
+    if(!audioCtx) return;
+    try {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = type || 'sine';
+      o.frequency.value = freq || 440;
+      g.gain.value = vol ?? 0.12;
+      o.connect(g);
+      g.connect(audioCtx.destination);
+      o.start();
+      g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + t);
+      setTimeout(()=> {
+        try { o.stop(); } catch(e) {}
+      }, t*1000 + 30);
+    } catch (e) {
+      // audio exceptions shouldn't break the game
+      // console.warn('beep error', e);
+    }
+  }
+
+  // game state
+  let running=false, paused=false, lastTime=0, score=0, best=Number(localStorage.getItem('firdy_best')||0);
+  bestEl.textContent = best;
+
+  const bird = { x:110, y: LOG_H/2, w:34, h:24, vy:0, rotation:0 };
+  let pipes = [];
+  let pipeTimer = 0;
+  let speed = 140;
+
+  // apply difficulty to mutable game params
+  function applyDifficulty() {
+    const cfg = DIFF[selectedDiff] || DIFF.normal;
+    gameParams.gravity = cfg.gravity;
+    gameParams.flapPower = cfg.flap;
+    gameParams.pipeGap = cfg.gap;
+    gameParams.baseSpeed = cfg.speed;
+    gameParams.spawnInterval = cfg.spawn;
+  }
+
+  const gameParams = {
+    gravity: DIFF.normal.gravity,
+    flapPower: DIFF.normal.flap,
+    pipeGap: DIFF.normal.gap,
+    baseSpeed: DIFF.normal.speed,
+    spawnInterval: DIFF.normal.spawn
+  };
+  applyDifficulty();
+
+  // reset / start
+  function resetGame(){
+    score=0; scoreEl.textContent = 0;
+    bird.y = LOG_H/2; bird.vy = 0; bird.rotation = 0;
+    pipes = []; pipeTimer = 0; speed = gameParams.baseSpeed;
+    running=false; paused=false; phase='ready';
+  }
+  function startGame(){
+    applyDifficulty();
+    resetGame();
+    running=true; phase='playing';
+    lastTime = performance.now();
+    // resume audio context
+    if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    beep(880,0.05,'sine',0.12);
+  }
+  function endGame(){
+    running=false; phase='over';
+    beep(120,0.5,'sawtooth',0.16);
+    if (score > best) { best = score; localStorage.setItem('firdy_best', best); bestEl.textContent = best; }
+  }
+
+  // spawn pipe
+  function spawnPipe(){
+    const minTop = 60;
+    const maxTop = LOG_H - 200 - gameParams.pipeGap; // leave room for ground
+    const topH = Math.floor(minTop + Math.random() * Math.max(1, (maxTop - minTop)));
+    pipes.push({
+      x: LOG_W + 40,
+      topY: 0,
+      topH: topH,
+      bottomY: topH + gameParams.pipeGap,
+      bottomH: (LOG_H - 120) - (topH + gameParams.pipeGap), // groundY ~ LOG_H - 120
+      w: 64,
+      passed: false
+    });
+  }
+
+  // physics update
+  function update(dt){
+    if (!running || paused) return;
+    // apply gravity
+    bird.vy += gameParams.gravity * dt;
+    bird.y += bird.vy * dt;
+    bird.rotation = Math.max(-0.8, Math.min(1.2, bird.vy / 600));
+
+    const groundY = LOG_H - 120;
+    if (bird.y + bird.h > groundY) { bird.y = groundY - bird.h; endGame(); return; }
+    if (bird.y < 0) bird.y = 0;
+
+    // spawn pipes
+    pipeTimer -= dt;
+    if (pipeTimer <= 0) {
+      spawnPipe();
+      pipeTimer = gameParams.spawnInterval * (0.85 + Math.random()*0.3); // small randomness
+    }
+
+    // move and check pipes
+    for (let i = pipes.length - 1; i >= 0; i--) {
+      const p = pipes[i];
+      p.x -= speed * dt;
+      if (!p.passed && p.x + p.w < bird.x) { p.passed = true; score++; scoreEl.textContent = score; beep(1200,0.03,'square',0.08); speed += 1.2; }
+      if (p.x + p.w < -50) pipes.splice(i,1);
+
+      // collision
+      const birdRect = {x:bird.x, y:bird.y, w:bird.w, h:bird.h};
+      const topRect = {x:p.x, y:p.topY, w:p.w, h:p.topH};
+      const bottomRect = {x:p.x, y:p.bottomY, w:p.w, h:p.bottomH};
+      if (rectsOverlap(birdRect, topRect) || rectsOverlap(birdRect, bottomRect)) {
+        endGame();
+      }
+    }
+
+    // slowly increase difficulty baseline (optional)
+    speed += dt * 0.6; // slight ramp
+  }
+
+  function rectsOverlap(a,b){
+    return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+  }
+
+  // drawing helpers
+  function drawRoundedRect(x,y,w,h,r,color){
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function draw(){
+    // clear using logical size
+    ctx.clearRect(0,0,LOG_W,LOG_H);
+
+    // sky
+    const g = ctx.createLinearGradient(0,0,0,LOG_H);
+    g.addColorStop(0, '#87CEEB'); g.addColorStop(1, '#63a4ff');
+    ctx.fillStyle = g; ctx.fillRect(0,0,LOG_W,LOG_H);
+
+    // pipes
+    pipes.forEach(p => {
+      ctx.fillStyle = '#2e8b57';
+      ctx.fillRect(p.x, p.topY, p.w, p.topH);
+      ctx.fillRect(p.x, p.bottomY, p.w, p.bottomH);
+      // caps
+      ctx.fillStyle = '#1e6b1e';
+      ctx.fillRect(p.x - 4, p.topH - 10, p.w + 8, 12);
+      ctx.fillRect(p.x - 4, p.bottomY, p.w + 8, 12);
+    });
+
+    // ground
+    const groundY = LOG_H - 120;
+    ctx.fillStyle = '#6b4f2b'; ctx.fillRect(0, groundY, LOG_W, LOG_H - groundY);
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    for (let gx = 0; gx < LOG_W; gx += 24) ctx.fillRect(gx, groundY + 6, 12, 6);
+
+    // bird
+    ctx.save(); ctx.translate(bird.x + bird.w/2, bird.y + bird.h/2); ctx.rotate(bird.rotation);
+    ctx.fillStyle = '#ffd54a';
+    ctx.beginPath(); ctx.ellipse(0,0,bird.w/2,bird.h/2,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#ffb74d'; ctx.beginPath(); ctx.ellipse(-2,2,bird.w*0.28,bird.h*0.18,-0.4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(6,-3,3,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+
+    // UI overlays
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.textAlign = 'center';
+    ctx.font = '18px system-ui,Arial';
+    if (phase === 'ready') ctx.fillText('Tap / Space to flap — Difficulty: ' + selectedDiff.toUpperCase(), LOG_W/2, LOG_H*0.38);
+    if (phase === 'over') {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.font = '28px system-ui,Arial';
+      ctx.fillText('Game Over', LOG_W/2, LOG_H*0.42);
+      ctx.font = '16px system-ui,Arial';
+      ctx.fillText('Start to try again', LOG_W/2, LOG_H*0.48);
+    }
+
+    // small score top
+    ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.font = '22px system-ui,Arial'; ctx.fillText(score, LOG_W/2, 44);
+  }
+
+  // main loop
+  function loop(now){
+    if (!lastTime) lastTime = now;
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    if (running && !paused) update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // interactions
+  function flap(){
+    if (phase === 'ready') {
+      startGame();
+      bird.vy = gameParams.flapPower;
+      return;
+    }
+    if (phase === 'playing') {
+      bird.vy = gameParams.flapPower;
+      beep(900,0.05,'sine',0.12);
+    } else if (phase === 'over') {
+      startGame();
+    }
+  }
+
+  window.addEventListener('keydown', e => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); flap(); }
+    if (e.key === 'f' || e.key === 'F') { if (!document.fullscreenElement) canvas.requestFullscreen?.(); else document.exitFullscreen?.(); }
+    if (e.code === 'KeyP') { paused = !paused; pauseBtn.textContent = paused ? 'Resume' : 'Pause'; }
+  });
+
+  // use pointerdown to cover mouse/touch/pen
+  canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); flap(); });
+
+  startBtn.addEventListener('click', () => startGame());
+  pauseBtn.addEventListener('click', () => { paused = !paused; pauseBtn.textContent = paused ? 'Resume' : 'Pause'; });
+
+  // initial
+  let phase = 'ready';
+  function initFromSavedDiff(){
+    const stored = localStorage.getItem('firdy_diff') || selectedDiff;
+    if (stored && DIFF[stored]) selectedDiff = stored;
+    setActiveDiffUI();
+    applyDifficulty();
+  }
+  initFromSavedDiff();
+  resetGame();
+  scoreEl.textContent = score;
+
+})();
+</script>
+</body>
+</html>
