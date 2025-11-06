@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Firdy Burd — by Shivam Raj 2M</title>
+<style>
+  :root{
+    --bg-top: #87CEEB;
+    --bg-bottom: #63a4ff;
+    --card-bg: rgba(255,255,255,0.03);
+    --accent: #ff8a65;
+    --muted: rgba(0,0,0,0.45);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%; margin:0; font-family:Inter,system-ui,Arial; background:linear-gradient(180deg,var(--bg-top),var(--bg-bottom)); color:#032; -webkit-font-smoothing:antialiased}
+  .center{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:18px}
+  .card{width:100%; max-width:720px; background:var(--card-bg); border-radius:12px; padding:16px; box-shadow:0 18px 40px rgba(2,6,23,0.2)}
+  header{display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px}
+  h1{margin:0; font-size:18px}
+  .controls{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .btn{background:transparent; border:1px solid rgba(0,0,0,0.08); padding:8px 10px; border-radius:8px; cursor:pointer}
+  .btn.primary{background:linear-gradient(90deg,#ffb86b,#ff8a65); color:white; border:0}
+  .difficulty-btn{padding:6px 10px; border-radius:10px; cursor:pointer; border:1px solid rgba(0,0,0,0.06); background:transparent}
+  .difficulty-btn.active{background:linear-gradient(90deg,#ffd89b,#ff8a65); color:#3a1707; font-weight:700}
+  .meta{font-size:13px; color:var(--muted)}
+  canvas{display:block; width:100%; border-radius:8px; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); margin-top:10px}
+  .info-row{display:flex; justify-content:space-between; align-items:center; margin-top:10px}
+  .muted{color:var(--muted)}
+  .creator{font-size:15px; font-weight:600; color:#fff; text-align:center; margin-bottom:10px; text-shadow:0 1px 3px rgba(0,0,0,0.5);}
+  @media (max-width:640px){ header{flex-direction:column; align-items:flex-start} }
+</style>
+</head>
+<body>
+  <div class="center">
+    <div class="card">
+      <div class="creator">🎮 Created by <span style="color:#ffb86b">Shivam Raj 2M</span> 🎵</div>
+
+      <header>
+        <div>
+          <h1>Firdy Burd — Choose Difficulty</h1>
+          <div class="meta">Pick a level then Start. Each level changes gravity, gap, speed and spawn rate.</div>
+        </div>
+
+        <div class="controls" aria-hidden="false">
+          <div id="difficultyGroup" role="tablist" aria-label="Difficulty levels">
+            <button class="difficulty-btn" data-diff="easy">Easy</button>
+            <button class="difficulty-btn" data-diff="normal">Normal</button>
+            <button class="difficulty-btn" data-diff="hard">Hard</button>
+            <button class="difficulty-btn" data-diff="insane">Insane</button>
+          </div>
+          <div style="width:8px"></div>
+          <button id="startBtn" class="btn primary">Start / Restart</button>
+          <button id="pauseBtn" class="btn">Pause</button>
+          <button id="musicBtn" class="btn">🎵 Music: Off</button>
+        </div>
+      </header>
+
+      <canvas id="game" width="480" height="640" aria-label="Game canvas"></canvas>
+
+      <div class="info-row">
+        <div class="muted">Score: <strong id="score">0</strong> &nbsp;•&nbsp; Best: <strong id="best">0</strong></div>
+        <div class="muted">Controls: Space / Up to flap • Tap to flap • F = fullscreen</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Background music: source will be set via JS to properly encode the filename/path -->
+  <audio id="bgMusic" loop></audio>
+
+<script>
+(() => {
+  // Canvas & DOM setup (unchanged from your version)
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const musicBtn = document.getElementById('musicBtn');
+  const bgMusic = document.getElementById('bgMusic');
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const diffButtons = Array.from(document.querySelectorAll('.difficulty-btn'));
+
+  // ---- SET THE MP3 FILE PATH HERE ----
+  // You uploaded a file at: /mnt/data/Saiyaara Modi Ji Version _ Faheem Abdullah _ {Modi ji Version} _ Yo Yo Modi Ji _ Covered By Modi Ji [6WrUherlPQo].mp3
+  // If you serve the file from a web server, use the served URL (recommended). 
+  // For local testing, you can instead place the MP3 in the same folder as this HTML and use "Saiyaara.mp3" (or any safe filename).
+  const uploadedPath = '/mnt/data/Saiyaara Modi Ji Version _ Faheem Abdullah _ {Modi ji Version} _ Yo Yo Modi Ji _ Covered By Modi Ji [6WrUherlPQo].mp3';
+  // We'll assign via JS using encodeURI to avoid issues with spaces/special chars:
+  bgMusic.src = encodeURI(uploadedPath);
+  // ------------------------------------
+
+  // helpful: set preload
+  bgMusic.preload = 'auto';
+
+  let musicOn = false;
+  musicBtn.addEventListener('click', () => {
+    musicOn = !musicOn;
+    if (musicOn) {
+      // try to play; may be blocked until user interaction (but clicking Music button counts)
+      bgMusic.play().catch(()=>{ /* ignore play-block errors */ });
+      musicBtn.textContent = '🎵 Music: On';
+    } else {
+      bgMusic.pause();
+      musicBtn.textContent = '🎵 Music: Off';
+    }
+  });
+
+  const LOG_W = 480, LOG_H = 640;
+  function fitCanvas(){
+    const ratio = window.devicePixelRatio || 1;
+    const cssW = Math.min(720, Math.max(320, document.querySelector('.card').clientWidth - 32));
+    const cssH = Math.round(cssW * (LOG_H / LOG_W));
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.width = Math.floor(cssW * ratio);
+    canvas.height = Math.floor(cssH * ratio);
+    const scaleX = canvas.width / LOG_W;
+    const scaleY = canvas.height / LOG_H;
+    ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+  }
+  fitCanvas(); window.addEventListener('resize', fitCanvas);
+
+  // difficulty configs etc...
+  const DIFFICULTIES = {
+    easy:   { gravity: 0.32, flap: -6.5, pipeGap: 180, pipeRate: 1600, pipeSpeed: 1.6 },
+    normal: { gravity: 0.38, flap: -6.8, pipeGap: 150, pipeRate: 1400, pipeSpeed: 1.9 },
+    hard:   { gravity: 0.45, flap: -7.4, pipeGap: 130, pipeRate: 1200, pipeSpeed: 2.3 },
+    insane: { gravity: 0.56, flap: -8.0, pipeGap: 110, pipeRate: 1000, pipeSpeed: 2.7 },
+  };
+
+  // state
+  let difficulty = 'normal';
+  diffButtons.forEach(btn => {
+    if (btn.dataset.diff === difficulty) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      diffButtons.forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      difficulty = btn.dataset.diff;
+      applyDifficulty();
+    });
+  });
+
+  function applyDifficulty(){
+    cfg = DIFFICULTIES[difficulty];
+  }
+
+  let cfg = DIFFICULTIES[difficulty];
+
+  // Game objects & vars
+  let bird, pipes, particles;
+  let lastSpawn = 0;
+  let lastTime = 0;
+  let running = false;
+  let paused = false;
+  let score = 0;
+  const BEST_KEY = 'firdy_burd_best_v1';
+  let best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10);
+  bestEl.textContent = best;
+
+  // Bird initial settings
+  function resetGame(){
+    bird = {
+      x: 100,
+      y: LOG_H/2 - 8,
+      w: 38, h: 28,
+      vy: 0,
+      rot: 0,
+      alive: true,
+      anim: 0
+    };
+    pipes = [];
+    particles = [];
+    lastSpawn = 0;
+    score = 0;
+    scoreEl.textContent = score;
+    running = false;
+    paused = false;
+    pauseBtn.textContent = 'Pause';
+  }
+  resetGame();
+
+  // Controls
+  function flap(){
+    if (!bird.alive) {
+      startGame();
+      return;
+    }
+    bird.vy = cfg.flap;
+    bird.rot = -0.5;
+    particles.push({x: bird.x - 6, y: bird.y + bird.h/2, vx: -0.6, vy: 0, life: 300});
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      flap();
+    } else if (e.key.toLowerCase() === 'f') {
+      toggleFullscreen();
+    } else if (e.key.toLowerCase() === 'p') {
+      togglePause();
+    }
+  });
+  canvas.addEventListener('mousedown', (e)=>{ flap(); });
+  canvas.addEventListener('touchstart', (e)=>{ e.preventDefault(); flap(); }, {passive:false});
+
+  function toggleFullscreen(){
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.();
+    } else {
+      document.exitFullscreen?.();
+    }
+  }
+
+  function togglePause(){
+    if (!running) return;
+    paused = !paused;
+    pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    if (!paused) {
+      lastTime = performance.now();
+      requestAnimationFrame(loop);
+    }
+  }
+  pauseBtn.addEventListener('click', togglePause);
+
+  function startGame(){
+    applyDifficulty();
+    resetGame();
+    bird.y = LOG_H/2;
+    bird.alive = true;
+    running = true;
+    paused = false;
+    lastTime = performance.now();
+    lastSpawn = lastTime + 200;
+    requestAnimationFrame(loop);
+  }
+  startBtn.addEventListener('click', startGame);
+
+  function spawnPipe(now){
+    const gap = cfg.pipeGap;
+    const margin = 40;
+    const gapY = Math.floor(margin + Math.random() * (LOG_H - margin*2 - gap));
+    pipes.push({ x: LOG_W + 20, gapY, passed: false });
+    lastSpawn = now;
+  }
+
+  function rectsOverlap(ax,ay,aw,ah, bx,by,bw,bh){
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  }
+
+  function update(dt){
+    if (!running || paused) return;
+
+    bird.vy += cfg.gravity * dt * 60;
+    bird.y += bird.vy * dt * 60;
+    bird.rot += (bird.vy * 0.02 - bird.rot) * 0.08;
+    if (bird.rot > 1.0) bird.rot = 1.0;
+
+    if (bird.y < 0) { bird.y = 0; bird.vy = 0; }
+    if (bird.y + bird.h > LOG_H) {
+      bird.y = LOG_H - bird.h;
+      bird.alive = false;
+      running = false;
+      endRun();
+    }
+
+    for (let i = pipes.length -1; i >= 0; --i){
+      const p = pipes[i];
+      p.x -= cfg.pipeSpeed * dt * 60;
+      const pipeW = 64;
+      const topH = p.gapY;
+      const botY = p.gapY + cfg.pipeGap;
+      const botH = LOG_H - botY;
+      const bx = bird.x, by = bird.y, bw = bird.w, bh = bird.h;
+      if (rectsOverlap(bx,by,bw,bh, p.x, 0, pipeW, topH) ||
+          rectsOverlap(bx,by,bw,bh, p.x, botY, pipeW, botH)) {
+        bird.alive = false;
+        running = false;
+        endRun();
+      }
+
+      if (!p.passed && p.x + pipeW < bird.x) {
+        p.passed = true;
+        score += 1;
+        scoreEl.textContent = score;
+        if (score > best) {
+          best = score;
+          bestEl.textContent = best;
+          localStorage.setItem(BEST_KEY, String(best));
+        }
+      }
+
+      if (p.x + pipeW < -20) pipes.splice(i,1);
+    }
+
+    for (let i = particles.length -1; i >= 0; --i){
+      const pr = particles[i];
+      pr.x += pr.vx * dt * 60;
+      pr.y += pr.vy * dt * 60;
+      pr.life -= dt * 1000;
+      if (pr.life <= 0) particles.splice(i,1);
+    }
+  }
+
+  function endRun(){
+    particles.push({x: bird.x, y: bird.y + bird.h/2, vx: 0, vy: -0.6, life: 600});
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,LOG_W,LOG_H);
+    const g = ctx.createLinearGradient(0,0,0,LOG_H);
+    g.addColorStop(0, '#87CEEB');
+    g.addColorStop(1, '#63a4ff');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,LOG_W,LOG_H);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.05)';
+    ctx.fillRect(0, LOG_H - 48, LOG_W, 48);
+
+    ctx.save();
+    ctx.fillStyle = '#1e6f3a';
+    for (const p of pipes){
+      const pipeW = 64;
+      const topH = p.gapY;
+      const botY = p.gapY + cfg.pipeGap;
+      roundRect(ctx, p.x, 0, pipeW, topH, 6);
+      ctx.fill();
+      roundRect(ctx, p.x, botY, pipeW, LOG_H - botY - 48, 6);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(p.x+6, Math.max(4, topH-12), pipeW-12, 6);
+      ctx.fillStyle = '#1e6f3a';
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(bird.x + bird.w/2, bird.y + bird.h/2);
+    ctx.rotate(bird.rot);
+    ctx.translate(- (bird.x + bird.w/2), - (bird.y + bird.h/2));
+
+    roundRect(ctx, bird.x, bird.y, bird.w, bird.h, 8);
+    ctx.fillStyle = '#ffb86b';
+    ctx.fill();
+
+    ctx.fillStyle = '#ff8a65';
+    ctx.beginPath();
+    ctx.ellipse(bird.x + 14, bird.y + bird.h/2 + Math.sin(performance.now()/150 + bird.anim)*2, 10, 6, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(bird.x + 26, bird.y + 10, 6, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(bird.x + 27, bird.y + 10, 2.5, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    for (const pr of particles) {
+      ctx.globalAlpha = Math.max(0, pr.life/600);
+      ctx.fillRect(pr.x, pr.y, 3, 3);
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = '40px Inter, system-ui, Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(score), LOG_W/2, 60);
+
+    if (!running && bird.alive) {
+      ctx.font = '14px Inter, system-ui, Arial';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillText('Press Start or Tap/Space to play', LOG_W/2, LOG_H/2 + 80);
+    }
+
+    if (!bird.alive && !running) {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(LOG_W/2 - 140, LOG_H/2 - 50, 280, 110);
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.strokeRect(LOG_W/2 - 140, LOG_H/2 - 50, 280, 110);
+
+      ctx.fillStyle = 'white';
+      ctx.font = '22px Inter, system-ui, Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('Game Over', LOG_W/2, LOG_H/2 - 8);
+      ctx.font = '16px Inter, system-ui, Arial';
+      ctx.fillText(`Score: ${score} • Best: ${best}`, LOG_W/2, LOG_H/2 + 18);
+      ctx.font = '13px Inter, system-ui, Arial';
+      ctx.fillText('Tap / Space to play again', LOG_W/2, LOG_H/2 + 48);
+    }
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function loop(now){
+    if (!lastTime) lastTime = now;
+    const dt = Math.min(1/15, (now - lastTime) / 1000);
+    lastTime = now;
+
+    if (running && now - lastSpawn > cfg.pipeRate) {
+      spawnPipe(now);
+    }
+
+    update(dt);
+    draw();
+
+    if (running && !paused) {
+      requestAnimationFrame(loop);
+    }
+  }
+
+  window.Firdy = {
+    start: startGame,
+    reset: resetGame,
+    setDifficulty: (d) => { if (DIFFICULTIES[d]) { difficulty = d; applyDifficulty(); diffButtons.forEach(b=>b.classList.toggle('active', b.dataset.diff===d)); } }
+  };
+
+  scoreEl.textContent = score;
+  bestEl.textContent = best;
+  startBtn.addEventListener('click', ()=> startGame());
+  draw();
+})();
+</script>
+</body>
+</html>
